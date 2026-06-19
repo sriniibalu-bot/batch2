@@ -1,0 +1,6 @@
+location            = "eastus"
+resource_group_name = "capstone_resource_group"
+admin_username      = "labadmin"
+admin_password      = "Training@123"
+db_app_username     = "labuser"
+db_app_password     = "Lab@2024!"

@@ -1,0 +1,15 @@
+#cloud-config
+package_update: true
+runcmd:
+  - apt-get update
+  - apt-get install -y wget gnupg2 lsb-release ca-certificates
+  - sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+  - wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+  - apt-get update
+  - apt-get install -y postgresql-13 postgresql-client-13
+  - systemctl enable postgresql
+  - systemctl start postgresql
+  - sudo -u postgres psql -c "CREATE USER ${db_app_username} WITH PASSWORD '${db_app_password}';"
+  - sed -i "s/^#listen_addresses =.*/listen_addresses = '*'/" /etc/postgresql/13/main/postgresql.conf
+  - sh -c "echo 'host all ${db_app_username} ${app_subnet_cidr} md5' >> /etc/postgresql/13/main/pg_hba.conf"
+  - systemctl restart postgresql
