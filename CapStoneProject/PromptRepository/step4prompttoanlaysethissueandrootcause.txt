@@ -1,0 +1,212 @@
+You are a senior PostgreSQL DBA and infrastructure on-call engineer.
+
+A production incident has occurred. Analyse the evidence below.
+
+KEY OBSERVATION: Unable to estable a new connection to database. 
+
+Answer:
+1. ROOT CAUSE: What is happening at the PostgreSQL connection level?
+2) why enable to establish new connection fromthe application
+3. IMMEDIATE ACTION: What is the fastest safe way to free connections
+   without losing in-progress transactions?
+4. Write the exact SQL to identify which connections are safe to terminate
+   (idle, no active query) vs which must NOT be terminated (active transaction).
+5. PREVENTION: What connection pooling solution would prevent this entirely?
+6) diagnose and provide root cause and remidate and verify the recovery againt the baseline
+script , and prepare a document for a RCA inti word document
+
+
+captured_at_utc=2026-06-19T14:09:04Z
+run_id=20260619140736
+application_name_prefix=fault_pool_20260619140736
+
+# Run metadata
+RUN_ID=20260619140736
+APP_NAME_PREFIX=fault_pool_20260619140736
+CONNECTION_COUNT=40
+HOLD_SECONDS=180
+STARTED_AT=2026-06-19T14:07:36Z
+
+# PostgreSQL server summary
+ database_name | login_role | server_ip | server_port | max_connections | reserved_connections | current_client_backends
+---------------+------------+-----------+-------------+-----------------+----------------------+-------------------------
+ postgres      | labuser    | 10.60.2.4 |        5432 | 100             | 3                    |                      41
+(1 row)
+
+
+# Tagged sessions
+  pid  | usename |       application_name       | client_addr | state  | wait_event_type | wait_event |         backend_start         |       age       |
+               query_sample
+-------+---------+------------------------------+-------------+--------+-----------------+------------+-------------------------------+-----------------+---
+---------------------------------------------
+ 10765 | labuser | fault_pool_20260619140736_1  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:36.271653+00 | 00:01:28.24918  | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10768 | labuser | fault_pool_20260619140736_2  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:36.540391+00 | 00:01:27.980442 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10770 | labuser | fault_pool_20260619140736_3  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:36.803626+00 | 00:01:27.717207 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10772 | labuser | fault_pool_20260619140736_4  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:38.134597+00 | 00:01:26.386236 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10775 | labuser | fault_pool_20260619140736_5  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:38.423525+00 | 00:01:26.097308 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10777 | labuser | fault_pool_20260619140736_6  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:39.759501+00 | 00:01:24.761332 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10779 | labuser | fault_pool_20260619140736_7  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:40.027724+00 | 00:01:24.493109 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10781 | labuser | fault_pool_20260619140736_8  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:40.295711+00 | 00:01:24.225122 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10783 | labuser | fault_pool_20260619140736_9  | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:40.568681+00 | 00:01:23.952152 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10785 | labuser | fault_pool_20260619140736_10 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:40.849734+00 | 00:01:23.671099 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10787 | labuser | fault_pool_20260619140736_11 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:41.118888+00 | 00:01:23.401945 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10790 | labuser | fault_pool_20260619140736_12 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:41.406702+00 | 00:01:23.114131 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10792 | labuser | fault_pool_20260619140736_13 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:42.732903+00 | 00:01:21.78793  | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10795 | labuser | fault_pool_20260619140736_14 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:43.015779+00 | 00:01:21.505054 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10797 | labuser | fault_pool_20260619140736_15 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:44.333786+00 | 00:01:20.187047 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10799 | labuser | fault_pool_20260619140736_16 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:44.598428+00 | 00:01:19.922405 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10801 | labuser | fault_pool_20260619140736_17 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:44.876139+00 | 00:01:19.644694 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10803 | labuser | fault_pool_20260619140736_18 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:45.14007+00  | 00:01:19.380763 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10806 | labuser | fault_pool_20260619140736_19 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:45.412591+00 | 00:01:19.108242 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10807 | labuser | fault_pool_20260619140736_20 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:45.676395+00 | 00:01:18.844438 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10809 | labuser | fault_pool_20260619140736_21 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:45.937581+00 | 00:01:18.583252 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10811 | labuser | fault_pool_20260619140736_22 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:46.2094+00   | 00:01:18.311433 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10813 | labuser | fault_pool_20260619140736_23 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:46.471339+00 | 00:01:18.049494 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10816 | labuser | fault_pool_20260619140736_24 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:46.745571+00 | 00:01:17.775262 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10817 | labuser | fault_pool_20260619140736_25 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:47.010078+00 | 00:01:17.510755 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10819 | labuser | fault_pool_20260619140736_26 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:47.280049+00 | 00:01:17.240784 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10821 | labuser | fault_pool_20260619140736_27 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:47.550335+00 | 00:01:16.970498 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10824 | labuser | fault_pool_20260619140736_28 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:47.821516+00 | 00:01:16.699317 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10826 | labuser | fault_pool_20260619140736_29 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:49.153494+00 | 00:01:15.367339 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10828 | labuser | fault_pool_20260619140736_30 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:49.420196+00 | 00:01:15.100637 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10831 | labuser | fault_pool_20260619140736_31 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:49.689214+00 | 00:01:14.831619 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10833 | labuser | fault_pool_20260619140736_32 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:51.020607+00 | 00:01:13.500226 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10835 | labuser | fault_pool_20260619140736_33 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:51.290978+00 | 00:01:13.229855 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10837 | labuser | fault_pool_20260619140736_34 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:51.553584+00 | 00:01:12.967249 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10839 | labuser | fault_pool_20260619140736_35 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:51.818609+00 | 00:01:12.702224 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10841 | labuser | fault_pool_20260619140736_36 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:52.082774+00 | 00:01:12.438059 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10843 | labuser | fault_pool_20260619140736_37 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:52.36845+00  | 00:01:12.152383 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10845 | labuser | fault_pool_20260619140736_38 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:52.635582+00 | 00:01:11.885251 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10847 | labuser | fault_pool_20260619140736_39 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:52.904255+00 | 00:01:11.616578 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+ 10850 | labuser | fault_pool_20260619140736_40 | 10.60.1.4   | active | Timeout         | PgSleep    | 2026-06-19 14:07:53.171934+00 | 00:01:11.348899 | SE
+LECT pg_backend_pid(); SELECT pg_sleep(180);
+(40 rows)
+
+
+# Tagged session count by state
+ state  | connections
+--------+-------------
+ active |          40
+(1 row)
+
+
+# Local client processes started by this script
+   5614       1 S          01:29 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5618       1 S          01:28 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5622       1 S          01:28 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5629       1 S          01:27 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5633       1 S          01:26 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5640       1 S          01:25 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5644       1 S          01:25 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5648       1 S          01:25 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5652       1 S          01:24 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5656       1 S          01:24 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5660       1 S          01:24 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5664       1 S          01:23 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5671       1 S          01:22 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5675       1 S          01:22 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5682       1 S          01:21 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5686       1 S          01:20 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5690       1 S          01:20 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5694       1 S          01:20 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5698       1 S          01:19 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5702       1 S          01:19 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5706       1 S          01:19 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5710       1 S          01:19 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5714       1 S          01:18 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5718       1 S          01:18 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5722       1 S          01:18 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5726       1 S          01:18 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5730       1 S          01:17 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5734       1 S          01:17 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5741       1 S          01:16 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5745       1 S          01:15 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5749       1 S          01:15 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5756       1 S          01:14 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5760       1 S          01:14 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5764       1 S          01:13 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5768       1 S          01:13 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5772       1 S          01:13 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5776       1 S          01:12 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5780       1 S          01:12 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5784       1 S          01:12 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);
+   5788       1 S          01:12 /usr/lib/postgresql/14/bin/psql host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024! -X -qAt -v ON_ERRO
+R_STOP=1 -c SELECT pg_backend_pid(); SELECT pg_sleep(180);

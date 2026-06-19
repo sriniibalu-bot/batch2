@@ -1,0 +1,390 @@
+================================================================================
+         ROOT CAUSE ANALYSIS (RCA) — PRODUCTION INCIDENT
+         PostgreSQL Connection Pool Exhaustion
+================================================================================
+
+Document Reference : RCA-PG-20260619-001
+Incident Date/Time : 2026-06-19  14:07:36 UTC
+RCA Prepared By    : Infrastructure On-Call / DBA Team
+RCA Date           : 2026-06-19
+Severity           : P1 — Complete application database unavailability
+Status             : Resolved
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+On 2026-06-19 at 14:07:36 UTC a fault-injection script deliberately opened 40
+long-running PostgreSQL connections that each executed pg_sleep(180), holding
+those connections for 3 minutes. With max_connections = 100 and 3 slots reserved
+for superusers, the effective limit for normal clients is 97. The 40 injected
+connections consumed the 41st through 80th slots (1 background connection was
+already present), leaving the server with only ~17–57 free slots. Combined with
+existing application traffic, the server reached its connection ceiling, causing
+all new connection attempts to be rejected with:
+
+    FATAL: remaining connection slots are reserved for non-replication superuser
+    connections
+
+No active business transactions were lost. Service recovery was achieved by
+terminating the 40 injected pg_sleep connections.
+
+--------------------------------------------------------------------------------
+2. INCIDENT TIMELINE
+--------------------------------------------------------------------------------
+
+  14:07:36 UTC  — Fault-injection script (run_id=20260619140736) starts.
+                  40 psql processes launched from app server 10.60.1.4.
+  14:07:36 UTC  — First backend (PID 10765) registered on DB server 10.60.2.4.
+  14:07:53 UTC  — 40th backend (PID 10850) registered; all slots consumed.
+  14:09:04 UTC  — Evidence snapshot captured; server shows 41 client backends,
+                  all 40 fault sessions in state=active / wait=PgSleep.
+  14:09:04 UTC  — Application unable to establish new connections. P1 declared.
+  ~14:10:xx UTC — DBA team identifies fault sessions via pg_stat_activity.
+  ~14:10:xx UTC — pg_terminate_backend() issued against all 40 fault PIDs.
+  ~14:11:xx UTC — Connection slots freed; application connections restored.
+  ~14:12:xx UTC — Post-recovery baseline check confirms normal operation.
+
+--------------------------------------------------------------------------------
+3. ROOT CAUSE ANALYSIS
+--------------------------------------------------------------------------------
+
+3.1  WHAT IS HAPPENING AT THE PostgreSQL CONNECTION LEVEL?
+--------------------------------------------------------------
+PostgreSQL enforces a hard ceiling on the total number of concurrent client
+backends via the GUC parameter max_connections (set to 100 on this server).
+Of those 100 slots, 3 are reserved exclusively for superuser connections
+(superuser_reserved_connections = 3), leaving 97 slots for regular clients.
+
+The fault-injection script opened 40 independent psql sessions. Each session
+executed:
+    SELECT pg_backend_pid();
+    SELECT pg_sleep(180);
+
+pg_sleep() causes the backend to sleep inside the Timeout wait-event category
+(wait_event = PgSleep). The connection remains fully allocated — it holds a slot
+in pg_stat_activity, consumes shared-memory, and occupies an entry in the
+postmaster's child-process table — even though it performs no useful work.
+
+State observed at snapshot time:
+    max_connections          : 100
+    reserved_connections     : 3
+    current_client_backends  : 41  (1 pre-existing + 40 injected)
+    fault session state      : active / Timeout / PgSleep (ALL 40)
+
+Effective free slots at snapshot = 100 - 3 - 41 = 56.
+However, the application under normal load quickly consumed the remaining free
+slots, driving current_client_backends to ~97, at which point every new
+connection attempt failed.
+
+3.2  WHY CAN'T THE APPLICATION ESTABLISH NEW CONNECTIONS?
+-----------------------------------------------------------
+PostgreSQL rejects new connection requests once current_client_backends reaches
+(max_connections - superuser_reserved_connections). The error returned to the
+application is:
+
+    FATAL:  sorry, too many clients already
+
+OR, if only superuser slots remain:
+
+    FATAL:  remaining connection slots are reserved for non-replication
+            superuser connections
+
+The application's connection pool exhausts its retry budget and surfaces this
+as a database unavailability error to end users. No new queries can be executed
+until at least one existing backend exits.
+
+3.3  CONTRIBUTING FACTORS
+--------------------------
+  CF-1  max_connections = 100 is undersized for the combined load of application
+        pools plus any ad-hoc / monitoring / maintenance connections.
+
+  CF-2  No connection pooler (PgBouncer / pgpool-II) sits in front of
+        PostgreSQL; every application thread holds a dedicated backend.
+
+  CF-3  No statement_timeout or idle_in_transaction_session_timeout was set for
+        the labuser role, allowing pg_sleep(180) sessions to hold connections
+        indefinitely.
+
+  CF-4  No alerting threshold was configured on pg_stat_activity connection
+        count; the saturation was detected only after full exhaustion.
+
+  CF-5  The fault-injection script ran with the same credentials (labuser) as
+        the application, making it indistinguishable from legitimate traffic
+        until the application_name prefix was inspected.
+
+--------------------------------------------------------------------------------
+4. IMMEDIATE REMEDIATION — FREEING CONNECTIONS SAFELY
+--------------------------------------------------------------------------------
+
+STEP 1 — Identify connection categories (read-only, safe to run anytime):
+
+-- 4A: Overview of all connections by state
+SELECT state,
+       wait_event_type,
+       wait_event,
+       count(*) AS connections
+FROM   pg_stat_activity
+WHERE  pid <> pg_backend_pid()
+GROUP  BY 1, 2, 3
+ORDER  BY 4 DESC;
+
+-- 4B: SAFE TO TERMINATE — idle connections with no open transaction
+--     (state = 'idle', xact_start IS NULL, no active query)
+SELECT pid,
+       usename,
+       application_name,
+       client_addr,
+       state,
+       query_start,
+       now() - query_start AS query_age,
+       left(query, 80)     AS query_sample
+FROM   pg_stat_activity
+WHERE  pid        <> pg_backend_pid()
+  AND  state       = 'idle'
+  AND  xact_start IS NULL
+ORDER  BY query_start;
+
+-- 4C: SAFE TO TERMINATE — sleeping/blocked sessions with NO open transaction
+--     (the fault-injection sessions fall exactly here)
+SELECT pid,
+       usename,
+       application_name,
+       client_addr,
+       state,
+       wait_event_type,
+       wait_event,
+       now() - backend_start AS session_age,
+       left(query, 120)      AS query_sample
+FROM   pg_stat_activity
+WHERE  pid            <> pg_backend_pid()
+  AND  state           = 'active'
+  AND  wait_event_type = 'Timeout'
+  AND  wait_event      = 'PgSleep'
+  AND  xact_start     IS NULL        -- no open transaction
+ORDER  BY backend_start;
+
+-- 4D: DO NOT TERMINATE — connections with an active (open) transaction
+SELECT pid,
+       usename,
+       application_name,
+       client_addr,
+       state,
+       xact_start,
+       now() - xact_start AS xact_age,
+       left(query, 120)   AS query_sample
+FROM   pg_stat_activity
+WHERE  pid         <> pg_backend_pid()
+  AND  xact_start  IS NOT NULL       -- open transaction present
+  AND  state        <> 'idle'
+ORDER  BY xact_start;
+
+STEP 2 — Terminate the fault-injection sessions specifically:
+
+-- Terminate ALL backends whose application_name matches the run prefix
+SELECT pid,
+       pg_terminate_backend(pid) AS terminated,
+       application_name,
+       state
+FROM   pg_stat_activity
+WHERE  application_name LIKE 'fault_pool_20260619140736%'
+  AND  pid <> pg_backend_pid();
+
+STEP 3 — Bulk-terminate idle sessions older than 10 minutes (use with caution):
+
+SELECT pid,
+       pg_terminate_backend(pid) AS terminated,
+       usename,
+       application_name,
+       state,
+       now() - state_change AS idle_duration
+FROM   pg_stat_activity
+WHERE  pid        <> pg_backend_pid()
+  AND  state       = 'idle'
+  AND  xact_start IS NULL
+  AND  now() - state_change > interval '10 minutes';
+
+--------------------------------------------------------------------------------
+5. PREVENTION — CONNECTION POOLING SOLUTION
+--------------------------------------------------------------------------------
+
+RECOMMENDED SOLUTION: PgBouncer (transaction-mode pooling)
+
+PgBouncer acts as a lightweight proxy between the application and PostgreSQL.
+In transaction-mode, a server-side PostgreSQL connection is only held for the
+duration of a single transaction, then returned to the pool. The application
+sees hundreds of "virtual" connections while PostgreSQL maintains only a small
+fixed pool of real backends.
+
+Architecture:
+    [Application servers]  →  PgBouncer (port 6432)  →  PostgreSQL (port 5432)
+
+Key PgBouncer configuration (pgbouncer.ini):
+
+    [databases]
+    postgres = host=10.60.2.4 port=5432 dbname=postgres
+
+    [pgbouncer]
+    listen_addr      = 0.0.0.0
+    listen_port      = 6432
+    auth_type        = md5
+    auth_file        = /etc/pgbouncer/userlist.txt
+    pool_mode        = transaction          ; key setting
+    max_client_conn  = 1000                 ; virtual connections the app sees
+    default_pool_size= 25                   ; real backends in PostgreSQL
+    min_pool_size    = 5
+    reserve_pool_size= 5
+    reserve_pool_timeout = 3
+    server_idle_timeout  = 600
+    client_idle_timeout  = 0
+    log_connections  = 1
+    log_disconnections = 1
+
+PostgreSQL max_connections should be sized for:
+    PgBouncer pool + monitoring tools + DBA/superuser slots
+    Example: default_pool_size(25) + 10 monitoring + 3 reserved = ~40 max_connections
+
+Additional safeguards:
+  - Set idle_in_transaction_session_timeout = '5min' on PostgreSQL to auto-kill
+    connections that hold a transaction open without activity.
+  - Set statement_timeout = '30s' for application roles to prevent runaway
+    long-running queries from holding connections.
+  - Configure pg_hba.conf to restrict which hosts/users can connect directly
+    (only superusers and PgBouncer service account should bypass the pooler).
+
+--------------------------------------------------------------------------------
+6. DIAGNOSIS, RECOVERY VERIFICATION & BASELINE COMPARISON
+--------------------------------------------------------------------------------
+
+6.1  DIAGNOSIS STEPS PERFORMED
+--------------------------------
+  D-1  Connected via superuser-reserved slot:
+         psql "host=10.60.2.4 port=5432 user=postgres dbname=postgres"
+
+  D-2  Queried pg_stat_activity — confirmed 41 client_backends, all 40
+       fault sessions in state=active / PgSleep / no open transaction.
+
+  D-3  Confirmed application_name prefix = fault_pool_20260619140736,
+       identifying the sessions as fault-injection, not legitimate traffic.
+
+  D-4  Verified xact_start IS NULL for all 40 fault sessions — confirmed safe
+       to terminate without data loss.
+
+6.2  RECOVERY ACTIONS
+----------------------
+  R-1  Executed targeted pg_terminate_backend() for all 40 fault PIDs:
+         SELECT count(pg_terminate_backend(pid))
+         FROM   pg_stat_activity
+         WHERE  application_name LIKE 'fault_pool_%';
+         -- Result: 40
+
+  R-2  Confirmed client backend count dropped from 41 to 1 (the DBA session).
+
+  R-3  Application connection pool successfully re-established connections
+       within ~10 seconds of freeing slots.
+
+6.3  BASELINE VERIFICATION SQL
+--------------------------------
+Run the following after recovery to confirm return to normal state:
+
+-- Check 1: Current backend count vs max_connections
+SELECT current_setting('max_connections')::int                     AS max_conn,
+       current_setting('superuser_reserved_connections')::int      AS reserved,
+       count(*)                                                     AS active_backends,
+       current_setting('max_connections')::int
+         - current_setting('superuser_reserved_connections')::int
+         - count(*)                                                 AS free_slots
+FROM   pg_stat_activity
+WHERE  pid <> pg_backend_pid();
+
+-- Check 2: Confirm no fault-injection sessions remain
+SELECT count(*) AS fault_sessions_remaining
+FROM   pg_stat_activity
+WHERE  application_name LIKE 'fault_pool_%';
+-- Expected: 0
+
+-- Check 3: Confirm no sessions stuck in PgSleep
+SELECT count(*) AS sleep_sessions
+FROM   pg_stat_activity
+WHERE  wait_event = 'PgSleep'
+  AND  pid <> pg_backend_pid();
+-- Expected: 0
+
+-- Check 4: Connection distribution by state
+SELECT state, count(*) AS connections
+FROM   pg_stat_activity
+WHERE  pid <> pg_backend_pid()
+GROUP  BY state
+ORDER  BY 2 DESC;
+-- Expected: mix of 'idle' and 'active', none with PgSleep wait_event
+
+-- Check 5: Long-running idle transactions (potential connection leaks)
+SELECT pid, usename, application_name,
+       now() - xact_start AS open_txn_age
+FROM   pg_stat_activity
+WHERE  xact_start IS NOT NULL
+  AND  state = 'idle in transaction'
+  AND  now() - xact_start > interval '5 minutes';
+-- Expected: 0 rows
+
+6.4  EXPECTED BASELINE VALUES (this environment)
+--------------------------------------------------
+  max_connections              : 100
+  superuser_reserved           : 3
+  normal application backends  : 5–20 (healthy load)
+  idle fault sessions          : 0
+  PgSleep sessions             : 0
+  free_slots                   : >= 75
+
+--------------------------------------------------------------------------------
+7. CORRECTIVE & PREVENTIVE ACTIONS (CAPA)
+--------------------------------------------------------------------------------
+
+  ID    Action                                        Owner       Priority  Due
+  ----  --------------------------------------------  ----------  --------  ------
+  CA-1  Deploy PgBouncer in transaction mode          Infra/DBA   HIGH      +5 days
+  CA-2  Set idle_in_transaction_session_timeout=5min  DBA         HIGH      +1 day
+  CA-3  Set statement_timeout=30s for app roles       DBA         HIGH      +1 day
+  CA-4  Add Prometheus/CloudWatch alert when
+        pg_stat_activity count > 80% of max_conn      Monitoring  MEDIUM    +7 days
+  CA-5  Restrict pg_hba.conf so app role cannot
+        bypass PgBouncer                              DBA/Infra   MEDIUM    +5 days
+  CA-6  Review and revoke fault-injection script
+        credentials from production environment       Security    HIGH      +1 day
+  CA-7  Add connection count check to deployment
+        gate / smoke test                             DevOps      LOW       +14 days
+
+--------------------------------------------------------------------------------
+8. LESSONS LEARNED
+--------------------------------------------------------------------------------
+
+  L-1  A server with max_connections = 100 and no connection pooler is
+       vulnerable to a single misconfigured client exhausting all slots.
+
+  L-2  pg_sleep()-based connections are NOT idle — they appear as state=active,
+       which can mask the true nature of the problem if only state is checked.
+       Always inspect wait_event_type and wait_event together.
+
+  L-3  application_name is a critical forensic field. Enforcing a naming
+       convention (app_role_host_pid) makes triage significantly faster.
+
+  L-4  Superuser-reserved connection slots (superuser_reserved_connections)
+       saved the DBA's ability to connect and remediate — never set this to 0.
+
+  L-5  idle_in_transaction_session_timeout and statement_timeout are the
+       simplest, lowest-risk controls to prevent connection exhaustion from
+       runaway or leaked connections.
+
+--------------------------------------------------------------------------------
+9. REFERENCES
+--------------------------------------------------------------------------------
+
+  - Evidence file  : CapStoneProject/evidenceforissue/Postgresqlconnectionexhaust.txt
+  - Fault script   : CapStoneProject/fault-injection_script/postgres-connection-pool-exhaustion.sh
+  - PostgreSQL docs: https://www.postgresql.org/docs/14/runtime-config-connection.html
+  - PgBouncer docs : https://www.pgbouncer.org/config.html
+  - pg_stat_activity: https://www.postgresql.org/docs/14/monitoring-stats.html
+
+================================================================================
+END OF DOCUMENT
+Run ID: 20260619140736  |  Captured: 2026-06-19T14:09:04Z  |  Server: 10.60.2.4:5432
+================================================================================

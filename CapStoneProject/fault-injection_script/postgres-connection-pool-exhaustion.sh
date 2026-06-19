@@ -18,16 +18,19 @@ Usage:
   $SCRIPT_NAME start <connection-string> [connections] [hold-seconds]
   $SCRIPT_NAME status <connection-string>
   $SCRIPT_NAME monitor <connection-string>
+  $SCRIPT_NAME evidence <connection-string> [output-file]
   $SCRIPT_NAME cleanup <connection-string>
 
 Examples:
   $SCRIPT_NAME start "host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024!" 40 180
   $SCRIPT_NAME status "host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024!"
+  $SCRIPT_NAME evidence "host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024!"
   $SCRIPT_NAME cleanup "host=10.60.2.4 port=5432 dbname=postgres user=labuser password=Lab@2024!"
 
 Notes:
   - Run this from the app server where psql can reach PostgreSQL 13.
   - The script opens many idle client sessions and keeps them alive with pg_sleep().
+  - The evidence command writes a timestamped lab snapshot you can attach to test results.
   - Cleanup kills only the client processes created by this script and can also terminate
     any leftover tagged backends on the server side.
 EOF
@@ -191,6 +194,87 @@ FROM pg_stat_activity;
 SQL
 }
 
+collect_evidence() {
+  local conn_string="$1"
+  local output_file="${2:-}"
+
+  load_run_id
+
+  if [[ -z "$output_file" ]]; then
+    output_file="$STATE_DIR/${APP_NAME_PREFIX}_evidence_$(date -u +%Y%m%dT%H%M%SZ).log"
+  fi
+
+  mkdir -p "$(dirname "$output_file")"
+
+  {
+    echo "# PostgreSQL connection pool exhaustion evidence"
+    echo "captured_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "run_id=$RUN_ID"
+    echo "application_name_prefix=$APP_NAME_PREFIX"
+    if [[ -f "$META_FILE" ]]; then
+      echo
+      echo "# Run metadata"
+      cat "$META_FILE"
+    fi
+
+    echo
+    echo "# PostgreSQL server summary"
+    psql "$conn_string" -X -P pager=off -v ON_ERROR_STOP=1 <<SQL
+SELECT current_database() AS database_name,
+       current_user AS login_role,
+       inet_server_addr() AS server_ip,
+       inet_server_port() AS server_port,
+       current_setting('max_connections') AS max_connections,
+       current_setting('superuser_reserved_connections') AS reserved_connections,
+       count(*) FILTER (WHERE backend_type = 'client backend') AS current_client_backends
+FROM pg_stat_activity;
+SQL
+
+    echo
+    echo "# Tagged sessions"
+    psql "$conn_string" -X -P pager=off -v ON_ERROR_STOP=1 <<SQL
+SELECT pid,
+       usename,
+       application_name,
+       client_addr,
+       state,
+       wait_event_type,
+       wait_event,
+       backend_start,
+       now() - backend_start AS age,
+       left(query, 120) AS query_sample
+FROM pg_stat_activity
+WHERE application_name LIKE '${APP_NAME_PREFIX}%'
+ORDER BY backend_start;
+SQL
+
+    echo
+    echo "# Tagged session count by state"
+    psql "$conn_string" -X -P pager=off -v ON_ERROR_STOP=1 <<SQL
+SELECT state,
+       count(*) AS connections
+FROM pg_stat_activity
+WHERE application_name LIKE '${APP_NAME_PREFIX}%'
+GROUP BY state
+ORDER BY state;
+SQL
+
+    echo
+    echo "# Local client processes started by this script"
+    if [[ -f "$CLIENT_PIDS_FILE" ]]; then
+      while IFS= read -r pid; do
+        if [[ -n "$pid" ]]; then
+          ps -p "$pid" -o pid=,ppid=,stat=,etime=,cmd= 2>/dev/null || echo "pid=$pid not running"
+        fi
+      done <"$CLIENT_PIDS_FILE"
+    else
+      echo "No local PID file found"
+    fi
+  } >"$output_file"
+
+  echo "Evidence written to $output_file"
+}
+
 cleanup_fault() {
   local conn_string="$1"
 
@@ -247,6 +331,9 @@ main() {
       ;;
     monitor)
       monitor_fault "$conn_string"
+      ;;
+    evidence)
+      collect_evidence "$conn_string" "${3:-}"
       ;;
     cleanup)
       cleanup_fault "$conn_string"

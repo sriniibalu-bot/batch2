@@ -1,4 +1,4 @@
-You are a Site Reliability Engineer (SRE) and DBA expert.
+You are a azure dba expert in postgres database
 
 Goal:
 Create a safe fault injection script to simulate database performance and availability issues for testing ( Postgres 13)
@@ -10,33 +10,26 @@ Environment:
 
 Requirements:
 
-Create a script (bash or simple SQL + shell) that can simulate the following faults:
+Create a simple shell script to run on app server that can simulate the following faults:
 
 1. Connection Pool Exhaustion: 
    - Open a large number of database connections
    - Hold them without closing
    - Cause new connections to fail or slow down
 
-2. Runaway Query:
-   - Run a long-running or heavy query (e.g., full table scan, CPU-heavy loop)
-   - Consume CPU or I/O resources on the DB server
 
-3. Optional (nice to have):
-   - Lock a table to cause blocking
-   - Simulate slow response (sleep/delay queries)
 
 Script Requirements:
 - Must be SAFE (easy to stop) and run from App server 
 - Include a cleanup/rollback command to restore normal state
 - Clearly explain what each step does
-- Should NOT permanently damage data
-- Limit impact (controlled duration, controlled load)
+--Evidence log of the connection to be collected 
 
 Output should include:
 - PostgreSQL 
 - Step-by-step script
 - How to run the script
-- How to monitor impact (CPU, connections, query time)
+- How to collect the evidence 
 - How to stop/cleanup quickly
 
 Keep it simple and practical for testing in a lab environment.

@@ -6,6 +6,8 @@ This folder contains a safe bash script to simulate connection pool exhaustion a
 
 The script opens many client connections from the app server, tags them with a unique `application_name`, and keeps them alive with `pg_sleep()` for a controlled amount of time.
 
+It also captures evidence on demand so you can prove which sessions were injected, how many were active, and whether the server was close to `max_connections`.
+
 This lets you test:
 - app behavior when the database is close to `max_connections`
 - connection pool timeouts or failures
@@ -15,7 +17,7 @@ It does not modify schema or data.
 
 ## Files
 
-- `postgres-connection-pool-exhaustion.sh`: start, inspect, monitor, and clean up the test
+- `postgres-connection-pool-exhaustion.sh`: start, inspect, collect evidence, monitor, and clean up the test
 
 ## Prerequisites
 
@@ -73,6 +75,25 @@ Show a summary of current session counts versus server limits:
 ./postgres-connection-pool-exhaustion.sh monitor "$CONN"
 ```
 
+Write a timestamped evidence log:
+
+```bash
+./postgres-connection-pool-exhaustion.sh evidence "$CONN"
+```
+
+Or write it to a specific file:
+
+```bash
+./postgres-connection-pool-exhaustion.sh evidence "$CONN" /tmp/postgres-pool-evidence.log
+```
+
+The evidence file includes:
+- run metadata such as run ID, hold time, and requested connection count
+- current PostgreSQL server connection limits
+- the injected sessions from `pg_stat_activity`
+- session counts by state
+- local `psql` client PIDs that were started by the script
+
 ## How To Monitor Impact
 
 ### From PostgreSQL
@@ -121,6 +142,12 @@ psql "$CONN" -c "select now();"
 
 If `connection_count` is high enough relative to `max_connections`, that fresh login should slow down or fail.
 
+For lab evidence from the app server, you can also capture the direct login result:
+
+```bash
+psql "$CONN" -c "select now();" > /tmp/postgres-direct-login-check.log 2>&1
+```
+
 ## How To Stop Quickly
 
 Immediate cleanup:
@@ -128,6 +155,8 @@ Immediate cleanup:
 ```bash
 ./postgres-connection-pool-exhaustion.sh cleanup "$CONN"
 ```
+
+This is the primary rollback command. It is safe to run even if some held sessions have already ended.
 
 What cleanup does:
 - kills the local `psql` client processes started by the script
@@ -141,6 +170,20 @@ What cleanup does:
 - Use short hold times such as `60` to `180` seconds in a lab.
 - Run against a non-production environment only.
 - If the application already uses a pooler such as PgBouncer, size the injected connection count so you stress the database without destabilizing the VM.
+
+## Practical Lab Run
+
+Example end-to-end run:
+
+```bash
+CONN="host=10.60.2.4 port=5432 dbname=postgres user=labuser"
+export PGPASSWORD='your-password'
+
+./postgres-connection-pool-exhaustion.sh start "$CONN" 20 120
+./postgres-connection-pool-exhaustion.sh monitor "$CONN"
+./postgres-connection-pool-exhaustion.sh evidence "$CONN"
+./postgres-connection-pool-exhaustion.sh cleanup "$CONN"
+```
 
 ## Practical Starting Point
 
