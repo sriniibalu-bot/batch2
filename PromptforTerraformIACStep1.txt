@@ -1,0 +1,24 @@
+You are a senior Cloud Engineer and Terraform expert. 
+
+
+Please build a terraform code on with the below requirement 
+
+You are a senior Cloud Engineer and Terraform expert. write the terraform code the under project folder C:\Users\labuser\Documents\training\CapStoneProject
+
+I need:
+
+One application server (Linux VM) with a public IP with 2 cpu and 5 GB memory so I can SSH into it
+One database server (VM) without a public IP (private only) and 2cpu and 10 GB memory 
+ postgres 13 need to installed CREATE USER labuser WITH PASSWORD 'Lab@2024!
+Admin access for the vm use the userid labadmin and password Training@123
+
+
+Infrastructure should include:
+
+A resource group  --> capstone_resource_group
+A virtual network
+Two subnets (one for app server, one for DB server)
+A network security group
+
+And generate command to validate four gates (Lint, Dry-Run, Idempotency, Bounded Scope) before terraform apply.
+
