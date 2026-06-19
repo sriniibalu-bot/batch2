@@ -1,0 +1,55 @@
+From Cloud Shell — collect Azure control-plane evidence
+---
+az monitor activity-log list \
+  --resource-group $RG \
+  --start-time $(date -u -d '30 minutes ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
+    date -u -v-30M '+%Y-%m-%dT%H:%M:%SZ') \
+  --query '[].{Time:eventTimestamp,Operation:operationName.value,
+            Status:status.value,Caller:caller}' \
+  -o table | tee ~/incident-activity-log.txt
+
+# Current NSG rules — shows LabBlock5432 at priority 90
+az network nsg rule list \
+  --resource-group $RG \
+  --nsg-name nsg-db \
+  --query '[].{Priority:priority,Name:name,Access:access,
+            Source:sourceAddressPrefix,Port:destinationPortRange}' \
+  -o table | tee ~/incident-nsg-rules.txt
+  
+On vm-app — run the bundle script to assemble all evidence
+---
+clear
+bash /opt/lab/bundle-evidence.sh 2>&1 | tee /opt/lab/evidence/bundle-output.txt
+
+Get the file output to cloud shell so that it will be easy to copy
+----
+
+CHUNK=50   # lines per chunk — stay well under the 4KB output limit
+OUTFILE=~/bundle-output-full.txt
+> "$OUTFILE"   # clear/create the local file
+
+# Get total line count
+TOTAL=$(az vm run-command invoke \
+  --resource-group $RG --name vm-app --command-id RunShellScript \
+  --scripts 'wc -l < /opt/lab/evidence/bundle-output.txt' \
+  --query 'value[0].message' -o tsv | grep -oE '[0-9]+' | tail -1)
+
+echo "Total lines: $TOTAL"
+
+START=1
+while [ "$START" -le "$TOTAL" ]; do
+  END=$((START + CHUNK - 1))
+  echo "Fetching lines $START-$END..."
+
+  az vm run-command invoke \
+    --resource-group $RG --name vm-app --command-id RunShellScript \
+    --scripts "sed -n '${START},${END}p' /opt/lab/evidence/bundle-output.txt" \
+    --query 'value[0].message' -o tsv \
+    | sed -n '/\[stdout\]/,/\[stderr\]/p' | sed '1d;$d' >> "$OUTFILE"
+
+  START=$((END + 1))
+done
+
+echo "Done. Reassembled file:"
+wc -l "$OUTFILE"
+cat "$OUTFILE"

@@ -1,0 +1,29 @@
+# Terraform generated directories
+**/.terraform/
+
+# Terraform plan artifacts (binary)
+*.tfplan
+**/tfplan
+
+# Terraform state and local outputs (often contain secrets)
+*.tfstate
+*.tfstate.backup
+**/terraform.txt
+
+# Common binary artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.dat
+*.zip
+*.tar
+*.gz
+*.7z
+*.rar
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.pdf
